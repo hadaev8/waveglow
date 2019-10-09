@@ -42,7 +42,7 @@ def load_checkpoint(checkpoint_path, model, optimizer):
     assert os.path.isfile(checkpoint_path)
     checkpoint_dict = torch.load(checkpoint_path, map_location='cpu')
     iteration = checkpoint_dict['iteration']
-    optimizer.load_state_dict(checkpoint_dict['optimizer'])
+    #optimizer.load_state_dict(checkpoint_dict['optimizer'])
     model_for_loading = checkpoint_dict['model']
     model.load_state_dict(model_for_loading.state_dict())
     print("Loaded checkpoint '{}' (iteration {})" .format(
@@ -77,7 +77,7 @@ def train(num_gpus, rank, group_name, output_directory, epochs, learning_rate,
         model = apply_gradient_allreduce(model)
     #=====END:   ADDED FOR DISTRIBUTED======
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+    optimizer = Ranger(model.parameters(), lr=learning_rate)
 
     if fp16_run:
         from apex import amp
