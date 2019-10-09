@@ -32,6 +32,7 @@ import torch
 import torch.utils.data
 import sys
 from scipy.io.wavfile import read
+import numpy as np
 
 # We're using the audio processing from TacoTron2 to make sure it matches
 sys.path.insert(0, 'tacotron2')
