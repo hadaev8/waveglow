@@ -42,7 +42,7 @@ from ranger import Ranger
 def load_checkpoint(checkpoint_path, model, optimizer):
     assert os.path.isfile(checkpoint_path)
     checkpoint_dict = torch.load(checkpoint_path, map_location='cpu')
-    iteration = checkpoint_dict['iteration']
+    #iteration = checkpoint_dict['iteration']
     #optimizer.load_state_dict(checkpoint_dict['optimizer'])
     model_for_loading = checkpoint_dict['model']
     model.load_state_dict(model_for_loading.state_dict())
