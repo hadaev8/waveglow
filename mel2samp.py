@@ -101,7 +101,7 @@ class Mel2Samp(torch.utils.data.Dataset):
         else:
             audio = torch.nn.functional.pad(audio, (0, self.segment_length - audio.size(0)), 'constant').data
 
-        mel = self.get_mel(audio)
+        mel = self.get_mel(filename)
         audio = audio / MAX_WAV_VALUE
 
         return (mel, audio)
