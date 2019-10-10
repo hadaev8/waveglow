@@ -92,9 +92,9 @@ def train(num_gpus, rank, group_name, output_directory, epochs, learning_rate,
     iteration = 0
     if checkpoint_path != "":
         model, optimizer, iteration = load_checkpoint(checkpoint_path, model, optimizer)
-#         if fp16_run:
-#             amp.load_state_dict(torch.load(
-#                 checkpoint_path)['amp'])
+        if fp16_run:
+            amp.load_state_dict(torch.load(
+                checkpoint_path)['amp'])
         iteration += 1
 
     trainset = Mel2Samp(**data_config)
