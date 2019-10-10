@@ -148,7 +148,7 @@ def train(num_gpus, rank, group_name, output_directory, epochs, learning_rate,
 
             optimizer.step()
             
-            lr_scheduler.step(loss)
+            scheduler.step(loss)
 
             print("{}:\t{:.9f}".format(iteration, reduced_loss))
             if with_tensorboard and rank == 0:
