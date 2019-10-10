@@ -39,18 +39,18 @@ from glow import WaveGlow, WaveGlowLoss
 from mel2samp import Mel2Samp
 from ranger import Ranger
 
-def load_checkpoint(checkpoint_path, model):
+def load_checkpoint(checkpoint_path, model, optimizer):
     assert os.path.isfile(checkpoint_path)
     checkpoint_dict = torch.load(checkpoint_path, map_location='cpu')
-    #iteration = checkpoint_dict['iteration']
-    #optimizer.load_state_dict(checkpoint_dict['optimizer'])
+    iteration = checkpoint_dict['iteration']
+    optimizer.load_state_dict(checkpoint_dict['optimizer'])
     model_for_loading = checkpoint_dict['model']
     model.load_state_dict(model_for_loading.state_dict())
-#     print("Loaded checkpoint '{}' (iteration {})" .format(
-#           checkpoint_path, iteration))
-    return model #, optimizer #, iteration
+    print("Loaded checkpoint '{}' (iteration {})" .format(
+          checkpoint_path, iteration))
+    return model, optimizer, iteration
 
-def save_checkpoint(model, optimizer, learning_rate, iteration, filepath):
+def save_checkpoint(model, optimizer, amp, learning_rate, iteration, filepath):
     print("Saving model and optimizer state at iteration {} to {}".format(
           iteration, filepath))
     model_for_saving = WaveGlow(**waveglow_config).cuda()
@@ -87,7 +87,11 @@ def train(num_gpus, rank, group_name, output_directory, epochs, learning_rate,
     # Load checkpoint if one exists
     iteration = 0
     if checkpoint_path != "":
-        model = load_checkpoint(checkpoint_path, model)
+        model, optimizer, iteration = load_checkpoint(checkpoint_path, model, optimizer)
+        if hparams.fp16_run:
+            amp.load_state_dict(torch.load(
+                checkpoint_path)['amp'])
+        iteration += 1
 
     trainset = Mel2Samp(**data_config)
     # =====START: ADDED FOR DISTRIBUTED======
@@ -145,7 +149,7 @@ def train(num_gpus, rank, group_name, output_directory, epochs, learning_rate,
                 if rank == 0:
                     checkpoint_path = "{}/waveglow_{}".format(
                         output_directory, iteration)
-                    save_checkpoint(model, optimizer, learning_rate, iteration,
+                    save_checkpoint(model, optimizer, amp, learning_rate, iteration,
                                     checkpoint_path)
 
             iteration += 1
