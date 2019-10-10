@@ -88,7 +88,7 @@ def train(num_gpus, rank, group_name, output_directory, epochs, learning_rate,
     iteration = 0
     if checkpoint_path != "":
         model, optimizer, iteration = load_checkpoint(checkpoint_path, model, optimizer)
-        if hparams.fp16_run:
+        if fp16_run:
             amp.load_state_dict(torch.load(
                 checkpoint_path)['amp'])
         iteration += 1
