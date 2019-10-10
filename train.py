@@ -93,16 +93,16 @@ def train(num_gpus, rank, group_name, output_directory, epochs, learning_rate,
     iteration = 0
     if checkpoint_path != "":
         model, optimizer, iteration = load_checkpoint(checkpoint_path, model, optimizer)
-#         if fp16_run:
-#             amp.load_state_dict(torch.load(
-#                 checkpoint_path)['amp'])
+        if fp16_run:
+            amp.load_state_dict(torch.load(
+                checkpoint_path)['amp'])
         iteration += 1
 
     trainset = Mel2Samp(**data_config)
     # =====START: ADDED FOR DISTRIBUTED======
     train_sampler = DistributedSampler(trainset) if num_gpus > 1 else None
     # =====END:   ADDED FOR DISTRIBUTED======
-    train_loader = DataLoader(trainset, num_workers=1, shuffle=False,
+    train_loader = DataLoader(trainset, num_workers=1, shuffle=True,
                               sampler=train_sampler,
                               batch_size=batch_size,
                               pin_memory=False,
@@ -121,6 +121,8 @@ def train(num_gpus, rank, group_name, output_directory, epochs, learning_rate,
 
     model.train()
     epoch_offset = max(0, int(iteration / len(train_loader)))
+    
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.99, patience=100, cooldown=100, verbose=True)
     # ================ MAIN TRAINNIG LOOP! ===================
     for epoch in range(epoch_offset, epochs):
         print("Epoch: {}".format(epoch))
@@ -145,6 +147,8 @@ def train(num_gpus, rank, group_name, output_directory, epochs, learning_rate,
                 loss.backward()
 
             optimizer.step()
+            
+            lr_scheduler.step(loss)
 
             print("{}:\t{:.9f}".format(iteration, reduced_loss))
             if with_tensorboard and rank == 0:
@@ -192,5 +196,5 @@ if __name__ == "__main__":
         raise Exception("Doing single GPU training on rank > 0")
 
     torch.backends.cudnn.enabled = True
-    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.benchmark = True
     train(num_gpus, args.rank, args.group_name, **train_config)
