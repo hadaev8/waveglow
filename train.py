@@ -62,6 +62,7 @@ def save_checkpoint(model, optimizer, amp, learning_rate, iteration, filepath):
     torch.save({'model': model_for_saving,
                 'iteration': iteration,
                 'optimizer': optimizer.state_dict(),
+                'amp': amp.state_dict(),
                 'learning_rate': learning_rate}, filepath)
 
 def train(num_gpus, rank, group_name, output_directory, epochs, learning_rate,
@@ -92,9 +93,9 @@ def train(num_gpus, rank, group_name, output_directory, epochs, learning_rate,
     iteration = 0
     if checkpoint_path != "":
         model, optimizer, iteration = load_checkpoint(checkpoint_path, model, optimizer)
-        if fp16_run:
-            amp.load_state_dict(torch.load(
-                checkpoint_path)['amp'])
+#         if fp16_run:
+#             amp.load_state_dict(torch.load(
+#                 checkpoint_path)['amp'])
         iteration += 1
 
     trainset = Mel2Samp(**data_config)
