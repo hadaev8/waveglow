@@ -93,12 +93,16 @@ class Mel2Samp(torch.utils.data.Dataset):
             raise ValueError("{} SR doesn't match target {} SR".format(
                 sampling_rate, self.sampling_rate))
 
-        # Take segment
         if audio.size(0) >= self.segment_length:
-            max_audio_start = audio.size(0) - self.segment_length
-            audio_start = random.randint(0, max_audio_start)
-            audio = audio[audio_start:audio_start+self.segment_length]
+            audio_std = 0
+            while audio_std < 1e-5:
+                max_audio_start = audio.size(0) - self.segment_length
+                audio_start = random.randint(0, max_audio_start)
+                segment = audio[audio_start:audio_start+self.segment_length]
+                audio_std = segment.std()
+            audio = segment
         else:
+            print('warning zero padding')
             audio = torch.nn.functional.pad(audio, (0, self.segment_length - audio.size(0)), 'constant').data
 
         mel = self.get_mel(audio)
