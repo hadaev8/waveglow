@@ -36,7 +36,7 @@ import numpy as np
 
 # We're using the audio processing from TacoTron2 to make sure it matches
 sys.path.insert(0, 'tacotron2')
-from tacotron2.layers import TacotronSTFT
+# from tacotron2.layers import TacotronSTFT
 
 MAX_WAV_VALUE = 32768.0
 
@@ -120,11 +120,11 @@ class Mel2Samp(torch.utils.data.Dataset):
         self.audio_files = files_to_list(training_files)
         random.seed(1234)
         random.shuffle(self.audio_files)
-        self.stft = TacotronSTFT(filter_length=filter_length,
-                                 hop_length=hop_length,
-                                 win_length=win_length,
-                                 sampling_rate=sampling_rate,
-                                 mel_fmin=mel_fmin, mel_fmax=mel_fmax)
+        # self.stft = TacotronSTFT(filter_length=filter_length,
+        #                          hop_length=hop_length,
+        #                          win_length=win_length,
+        #                          sampling_rate=sampling_rate,
+        #                          mel_fmin=mel_fmin, mel_fmax=mel_fmax)
         self.segment_length = segment_length
         self.sampling_rate = sampling_rate
 
