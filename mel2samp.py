@@ -133,10 +133,10 @@ class Mel2Samp(torch.utils.data.Dataset):
         filename = self.audio_files[index]
         audio, sr = librosa.core.load(filename, sr=None)
 
-        if audio.size(0) >= self.segment_length:
+        if audio.shape(0) >= self.segment_length:
             audio_std = 0
             while audio_std < 1e-5:
-                max_audio_start = audio.size(0) - self.segment_length
+                max_audio_start = audio.shape(0) - self.segment_length
                 audio_start = random.randint(0, max_audio_start)
                 segment = audio[audio_start:audio_start + self.segment_length]
                 audio_std = segment.std()
