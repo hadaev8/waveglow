@@ -29,30 +29,32 @@ import json
 import os
 import torch
 
-#=====START: ADDED FOR DISTRIBUTED======
+# =====START: ADDED FOR DISTRIBUTED======
 from distributed import init_distributed, apply_gradient_allreduce, reduce_tensor
 from torch.utils.data.distributed import DistributedSampler
-#=====END:   ADDED FOR DISTRIBUTED======
+# =====END:   ADDED FOR DISTRIBUTED======
 
 from torch.utils.data import DataLoader
 from glow import WaveGlow, WaveGlowLoss
 from mel2samp import Mel2Samp
-from ranger import Ranger
+from optim import Over9000
 
-def load_checkpoint(checkpoint_path, model, optimizer):
+
+def load_checkpoint(checkpoint_path, model, optimizer, warm_start=False):
     assert os.path.isfile(checkpoint_path)
     checkpoint_dict = torch.load(checkpoint_path, map_location='cpu')
-    if 'iteration' in checkpoint_dict.keys():
+    if 'iteration' in checkpoint_dict.keys() and not warm_start:
         iteration = checkpoint_dict['iteration']
     else:
         iteration = 0
-    if 'optimizer' in checkpoint_dict.keys():
+    if 'optimizer' in checkpoint_dict.keys() and not warm_start:
         optimizer.load_state_dict(checkpoint_dict['optimizer'])
     model_for_loading = checkpoint_dict['model']
     model.load_state_dict(model_for_loading.state_dict())
     print("Loaded checkpoint '{}' (iteration {})" .format(
           checkpoint_path, iteration))
     return model, optimizer, iteration
+
 
 def save_checkpoint(model, optimizer, amp, learning_rate, iteration, filepath):
     print("Saving model and optimizer state at iteration {} to {}".format(
@@ -65,25 +67,25 @@ def save_checkpoint(model, optimizer, amp, learning_rate, iteration, filepath):
                 'amp': amp.state_dict(),
                 'learning_rate': learning_rate}, filepath)
 
+
 def train(num_gpus, rank, group_name, output_directory, epochs, learning_rate,
           sigma, iters_per_checkpoint, batch_size, seed, fp16_run,
-          checkpoint_path, with_tensorboard):
+          checkpoint_path, with_tensorboard, warm_start):
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
-    #=====START: ADDED FOR DISTRIBUTED======
+    # =====START: ADDED FOR DISTRIBUTED======
     if num_gpus > 1:
         init_distributed(rank, num_gpus, group_name, **dist_config)
-    #=====END:   ADDED FOR DISTRIBUTED======
+    # =====END:   ADDED FOR DISTRIBUTED======
 
     criterion = WaveGlowLoss(sigma)
     model = WaveGlow(**waveglow_config).cuda()
 
-    #=====START: ADDED FOR DISTRIBUTED======
+    # =====START: ADDED FOR DISTRIBUTED======
     if num_gpus > 1:
         model = apply_gradient_allreduce(model)
-    #=====END:   ADDED FOR DISTRIBUTED======
-
-    optimizer = Ranger(model.parameters(), lr=learning_rate)
+    # =====END:   ADDED FOR DISTRIBUTED======
+    optimizer = Over9000(model.parameters(), lr=learning_rate)
 
     if fp16_run:
         from apex import amp
@@ -92,8 +94,9 @@ def train(num_gpus, rank, group_name, output_directory, epochs, learning_rate,
     # Load checkpoint if one exists
     iteration = 0
     if checkpoint_path != "":
-        model, optimizer, iteration = load_checkpoint(checkpoint_path, model, optimizer)
-        if fp16_run:
+        model, optimizer, iteration = load_checkpoint(
+            checkpoint_path, model, optimizer, warm_start)
+        if fp16_run and not warm_start:
             amp.load_state_dict(torch.load(
                 checkpoint_path)['amp'])
         iteration += 1
@@ -102,7 +105,7 @@ def train(num_gpus, rank, group_name, output_directory, epochs, learning_rate,
     # =====START: ADDED FOR DISTRIBUTED======
     train_sampler = DistributedSampler(trainset) if num_gpus > 1 else None
     # =====END:   ADDED FOR DISTRIBUTED======
-    train_loader = DataLoader(trainset, num_workers=1, shuffle=True,
+    train_loader = DataLoader(trainset, num_workers=16, shuffle=True,
                               sampler=train_sampler,
                               batch_size=batch_size,
                               pin_memory=False,
@@ -121,8 +124,9 @@ def train(num_gpus, rank, group_name, output_directory, epochs, learning_rate,
 
     model.train()
     epoch_offset = max(0, int(iteration / len(train_loader)))
-    
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.99, patience=100, cooldown=100, verbose=True)
+
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, factor=0.99, patience=100, cooldown=100, verbose=True)
     # ================ MAIN TRAINNIG LOOP! ===================
     for epoch in range(epoch_offset, epochs):
         print("Epoch: {}".format(epoch))
@@ -130,8 +134,8 @@ def train(num_gpus, rank, group_name, output_directory, epochs, learning_rate,
             model.zero_grad()
 
             mel, audio = batch
-            mel = torch.autograd.Variable(mel.cuda())
-            audio = torch.autograd.Variable(audio.cuda())
+            mel = mel.cuda()
+            audio = audio.cuda()
             outputs = model((mel, audio))
 
             loss = criterion(outputs)
@@ -147,12 +151,13 @@ def train(num_gpus, rank, group_name, output_directory, epochs, learning_rate,
                 loss.backward()
 
             optimizer.step()
-            
+
             scheduler.step(loss)
 
             print("{}:\t{:.9f}".format(iteration, reduced_loss))
             if with_tensorboard and rank == 0:
-                logger.add_scalar('training_loss', reduced_loss, i + len(train_loader) * epoch)
+                logger.add_scalar('training_loss', reduced_loss,
+                                  i + len(train_loader) * epoch)
 
             if (iteration % iters_per_checkpoint == 0):
                 if rank == 0:
@@ -162,6 +167,7 @@ def train(num_gpus, rank, group_name, output_directory, epochs, learning_rate,
                                     checkpoint_path)
 
             iteration += 1
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

@@ -40,6 +40,7 @@ from tacotron2.layers import TacotronSTFT
 
 MAX_WAV_VALUE = 32768.0
 
+
 def files_to_list(filename):
     """
     Takes a text file of filenames and makes a list of filenames
@@ -50,6 +51,7 @@ def files_to_list(filename):
     files = [f.rstrip() for f in files]
     return files
 
+
 def load_wav_to_torch(full_path):
     """
     Loads wavdata into torch array
@@ -58,11 +60,61 @@ def load_wav_to_torch(full_path):
     return torch.from_numpy(data).float(), sampling_rate
 
 
+import librosa
+import numpy as np
+
+
+def logmelfilterbank(audio,
+                     sampling_rate=22050,
+                     fft_size=1024,
+                     hop_size=256,
+                     win_length=1024,
+                     window="hann",
+                     num_mels=80,
+                     fmin=80,
+                     fmax=None,
+                     eps=1e-10,
+                     ):
+    """Compute log-Mel filterbank feature.
+    Args:
+        audio (ndarray): Audio signal (T,).
+        sampling_rate (int): Sampling rate.
+        fft_size (int): FFT size.
+        hop_size (int): Hop size.
+        win_length (int): Window length. If set to None, it will be the same as fft_size.
+        window (str): Window function type.
+        num_mels (int): Number of mel basis.
+        fmin (int): Minimum frequency in mel basis calculation.
+        fmax (int): Maximum frequency in mel basis calculation.
+        eps (float): Epsilon value to avoid inf in log calculation.
+    Returns:
+        ndarray: Log Mel filterbank feature (#frames, num_mels).
+    """
+    # get amplitude spectrogram
+    x_stft = librosa.stft(audio, n_fft=fft_size, hop_length=hop_size,
+                          win_length=win_length, window=window, pad_mode="reflect")
+    spc = np.abs(x_stft).T  # (#frames, #bins)
+
+    # get mel basis
+    fmin = 0 if fmin is None else fmin
+    fmax = sampling_rate / 2 if fmax is None else fmax
+    mel_basis = librosa.filters.mel(
+        sampling_rate, fft_size, num_mels, fmin, fmax)
+
+    mel = np.log10(np.maximum(eps, np.dot(spc, mel_basis.T)))
+
+    mel += 6.399038
+    mel /= 0.8015753 + 6.399038
+
+    return mel.transpose(1, 0)
+
+
 class Mel2Samp(torch.utils.data.Dataset):
     """
     This is the main class that calculates the spectrogram and returns the
     spectrogram, audio pair.
     """
+
     def __init__(self, training_files, segment_length, filter_length,
                  hop_length, win_length, sampling_rate, mel_fmin, mel_fmax):
         self.audio_files = files_to_list(training_files)
@@ -76,42 +128,31 @@ class Mel2Samp(torch.utils.data.Dataset):
         self.segment_length = segment_length
         self.sampling_rate = sampling_rate
 
-    def get_mel(self, audio):
-        audio_norm = audio / MAX_WAV_VALUE
-        audio_norm = audio_norm.unsqueeze(0)
-        audio_norm = torch.autograd.Variable(audio_norm, requires_grad=False)
-        melspec = self.stft.mel_spectrogram(audio_norm)
-        melspec = torch.squeeze(melspec, 0)
-#         melspec = torch.from_numpy(np.load(audio.replace('.wav', '.npy')))
-        return melspec
-
     def __getitem__(self, index):
         # Read audio
         filename = self.audio_files[index]
-        audio, sampling_rate = load_wav_to_torch(filename)
-        if sampling_rate != self.sampling_rate:
-            raise ValueError("{} SR doesn't match target {} SR".format(
-                sampling_rate, self.sampling_rate))
+        audio, sr = librosa.core.load(filename, sr=None)
 
         if audio.size(0) >= self.segment_length:
             audio_std = 0
             while audio_std < 1e-5:
                 max_audio_start = audio.size(0) - self.segment_length
                 audio_start = random.randint(0, max_audio_start)
-                segment = audio[audio_start:audio_start+self.segment_length]
+                segment = audio[audio_start:audio_start + self.segment_length]
                 audio_std = segment.std()
             audio = segment
         else:
             print('warning zero padding')
-            audio = torch.nn.functional.pad(audio, (0, self.segment_length - audio.size(0)), 'constant').data
+            audio = torch.nn.functional.pad(
+                audio, (0, self.segment_length - audio.size(0)), 'constant').data
 
-        mel = self.get_mel(audio)
-        audio = audio / MAX_WAV_VALUE
+        mel = logmelfilterbank(audio)
 
-        return (mel, audio)
+        return (torch.from_numpy(mel).float(), torch.from_numpy(audio).float())
 
     def __len__(self):
         return len(self.audio_files)
+
 
 # ===================================================================
 # Takes directory of clean audio and makes directory of spectrograms
