@@ -103,8 +103,8 @@ def logmelfilterbank(audio,
 
     mel = np.log10(np.maximum(eps, np.dot(spc, mel_basis.T)))
 
-    mel += 6.399038
-    mel /= 0.8015753 + 6.399038
+    # mel += 6.399038
+    # mel /= 0.8015753 + 6.399038
 
     return mel.transpose(1, 0)
 
