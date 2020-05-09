@@ -131,7 +131,7 @@ class Mel2Samp(torch.utils.data.Dataset):
     def __getitem__(self, index):
         # Read audio
         filename = self.audio_files[index]
-        audio, sampling_rate= = librosa.core.load(filename, sr=None)
+        audio, sampling_rate = librosa.core.load(filename, sr=None)
 
         if audio.shape[0] >= self.segment_length:
             audio_std = 0
