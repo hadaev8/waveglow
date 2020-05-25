@@ -146,7 +146,7 @@ class Mel2Samp(torch.utils.data.Dataset):
             audio = torch.nn.functional.pad(
                 audio, (0, self.segment_length - audio.size(0)), 'constant').data
 
-        mel = logmelfilterbank(audio, sampling_rate=sr)
+        mel = logmelfilterbank(audio, sampling_rate=sampling_rate)
 
         return (torch.from_numpy(mel).float(), torch.from_numpy(audio).float())
 
