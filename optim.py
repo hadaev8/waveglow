@@ -1,4 +1,6 @@
-# https: // github.com / mgrankin / over9000
+# https://github.com/mgrankin/over9000
+# https://github.com/Yonghongwei/Gradient-Centralization
+# https://github.com/lessw2020/Ranger-Deep-Learning-Optimizer
 
 import torch
 import math
@@ -48,6 +50,10 @@ class Ralamb(Optimizer):
 
                 exp_avg, exp_avg_sq = state['exp_avg'], state['exp_avg_sq']
                 beta1, beta2 = group['betas']
+
+                # GC operation for Conv layers and FC layers
+                if grad.dim() > 1:
+                    grad.add_(-grad.mean(dim=tuple(range(1, grad.dim())), keepdim=True))
 
                 # Decay the first and second moment running average coefficient
                 # m_t
