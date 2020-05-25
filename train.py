@@ -56,16 +56,21 @@ def load_checkpoint(checkpoint_path, model, optimizer, warm_start=False):
     return model, optimizer, iteration
 
 
-def save_checkpoint(model, optimizer, amp, learning_rate, iteration, filepath):
+def save_checkpoint(model, optimizer, amp, iteration, filepath):
     print("Saving model and optimizer state at iteration {} to {}".format(
           iteration, filepath))
     model_for_saving = WaveGlow(**waveglow_config).cuda()
     model_for_saving.load_state_dict(model.state_dict())
-    torch.save({'model': model_for_saving,
-                'iteration': iteration,
-                'optimizer': optimizer.state_dict(),
-                'amp': amp.state_dict(),
-                'learning_rate': learning_rate}, filepath)
+    checkpoint = {'model': model_for_saving,
+                  'iteration': iteration,
+                  'optimizer': optimizer.state_dict(),
+                  'cuda_rng_state_all': torch.cuda.get_rng_state_all(),
+                  'random_rng_state': torch.random.get_rng_state()}
+
+    if amp is not None:
+        checkpoint['amp'] = amp.state_dict()
+
+    torch.save(checkpoint, filepath)
 
 
 def train(num_gpus, rank, group_name, output_directory, epochs, learning_rate,
@@ -90,6 +95,8 @@ def train(num_gpus, rank, group_name, output_directory, epochs, learning_rate,
     if fp16_run:
         from apex import amp
         model, optimizer = amp.initialize(model, optimizer, opt_level='O1')
+    else:
+        amp = None
 
     # Load checkpoint if one exists
     iteration = 0
