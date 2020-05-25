@@ -126,7 +126,7 @@ def train(num_gpus, rank, group_name, output_directory, epochs, learning_rate,
     epoch_offset = max(0, int(iteration / len(train_loader)))
 
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, factor=0.99, patience=100, cooldown=100, verbose=True)
+        optimizer, factor=0.99, patience=500, cooldown=500, verbose=True)
     # ================ MAIN TRAINNIG LOOP! ===================
     for epoch in range(epoch_offset, epochs):
         print("Epoch: {}".format(epoch))
