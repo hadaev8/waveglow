@@ -132,8 +132,8 @@ def train(num_gpus, rank, group_name, output_directory, epochs, learning_rate,
     model.train()
     epoch_offset = max(0, int(iteration / len(train_loader)))
 
-#     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-#         optimizer, factor=0.99, patience=500, cooldown=500, verbose=True)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, factor=0.99, patience=250, cooldown=250, verbose=True)
     # ================ MAIN TRAINNIG LOOP! ===================
     for epoch in range(epoch_offset, epochs):
         print("Epoch: {}".format(epoch))
@@ -166,7 +166,8 @@ def train(num_gpus, rank, group_name, output_directory, epochs, learning_rate,
 
             optimizer.step()
 
-#             scheduler.step(loss)
+            if epoch > 1:
+                scheduler.step(loss)
 
             print("{}:\t{:.9f}\t{:.9f}".format(
                 iteration, reduced_loss, grad_norm))
