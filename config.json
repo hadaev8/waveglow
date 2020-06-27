@@ -14,7 +14,7 @@
     },
     "data_config": {
         "training_files": "train_files.txt",
-        "segment_length": 16000,
+        "segment_length": 16384,
         "sampling_rate": 22050,
         "filter_length": 1024,
         "hop_length": 256,

@@ -114,6 +114,7 @@ class Mel2Samp(torch.utils.data.Dataset):
                 audio, (0, self.segment_length - audio.size(0)), 'constant').data
 
         mel = self.get_mel(audio)
+        audio = audio + torch.rand_like(audio) - 0.5
         audio = audio / MAX_WAV_VALUE
 
         return (mel, audio)
