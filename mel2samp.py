@@ -64,51 +64,6 @@ import librosa
 import numpy as np
 
 
-# def logmelfilterbank(audio,
-#                      sampling_rate=22050,
-#                      fft_size=1024,
-#                      hop_size=256,
-#                      win_length=1024,
-#                      window="hann",
-#                      num_mels=80,
-#                      fmin=80,
-#                      fmax=None,
-#                      eps=1e-10,
-#                      ):
-#     """Compute log-Mel filterbank feature.
-#     Args:
-#         audio (ndarray): Audio signal (T,).
-#         sampling_rate (int): Sampling rate.
-#         fft_size (int): FFT size.
-#         hop_size (int): Hop size.
-#         win_length (int): Window length. If set to None, it will be the same as fft_size.
-#         window (str): Window function type.
-#         num_mels (int): Number of mel basis.
-#         fmin (int): Minimum frequency in mel basis calculation.
-#         fmax (int): Maximum frequency in mel basis calculation.
-#         eps (float): Epsilon value to avoid inf in log calculation.
-#     Returns:
-#         ndarray: Log Mel filterbank feature (#frames, num_mels).
-#     """
-#     # get amplitude spectrogram
-#     x_stft = librosa.stft(audio, n_fft=fft_size, hop_length=hop_size,
-#                           win_length=win_length, window=window, pad_mode="reflect")
-#     spc = np.abs(x_stft).T  # (#frames, #bins)
-
-#     # get mel basis
-#     fmin = 0 if fmin is None else fmin
-#     fmax = sampling_rate / 2 if fmax is None else fmax
-#     mel_basis = librosa.filters.mel(
-#         sampling_rate, fft_size, num_mels, fmin, fmax)
-
-#     mel = np.log10(np.maximum(eps, np.dot(spc, mel_basis.T)))
-
-#     # mel += 6.399038
-#     # mel /= 0.8015753 + 6.399038
-
-#     return mel.transpose(1, 0)
-
-
 class Mel2Samp(torch.utils.data.Dataset):
     """
     This is the main class that calculates the spectrogram and returns the
@@ -146,10 +101,15 @@ class Mel2Samp(torch.utils.data.Dataset):
 
         # Take segment
         if audio.size(0) >= self.segment_length:
-            max_audio_start = audio.size(0) - self.segment_length
-            audio_start = random.randint(0, max_audio_start)
-            audio = audio[audio_start:audio_start + self.segment_length]
+            audio_std = 0
+            while audio_std < 1e-5:
+                max_audio_start = audio.size(0) - self.segment_length
+                audio_start = random.randint(0, max_audio_start)
+                segment = audio[audio_start:audio_start + self.segment_length]
+                audio_std = segment.std()
+            audio = segment
         else:
+            print('warning zero padding')
             audio = torch.nn.functional.pad(
                 audio, (0, self.segment_length - audio.size(0)), 'constant').data
 
