@@ -11,17 +11,18 @@ class Denoiser(torch.nn.Module):
                  win_length=1024, mode='zeros'):
         super(Denoiser, self).__init__()
         self.device = waveglow.upsample.weight.device
+        self.channels = waveglow.upsample.weight.shape[0]
         self.stft = STFT(filter_length=filter_length,
                          hop_length=int(filter_length / n_overlap),
                          win_length=win_length).to(self.device)
         if mode == 'zeros':
             mel_input = torch.zeros(
-                (1, 80, 88),
+                (1, self.channels, self.channels + 8),
                 dtype=waveglow.upsample.weight.dtype,
                 device=self.device)
         elif mode == 'normal':
             mel_input = torch.randn(
-                (1, 80, 88),
+                (1, self.channels, self.channels + 8),
                 dtype=waveglow.upsample.weight.dtype,
                 device=self.device)
         else:
