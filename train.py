@@ -157,20 +157,20 @@ def train(num_gpus, rank, group_name, output_directory, epochs, learning_rate,
             else:
                 loss.backward()
 
-            if fp16_run:
-                grad_norm = torch.nn.utils.clip_grad_norm_(
-                    amp.master_params(optimizer), 1.0)
-            else:
-                grad_norm = torch.nn.utils.clip_grad_norm_(
-                    model.parameters(), 1.0)
+            # if fp16_run:
+            #     grad_norm = torch.nn.utils.clip_grad_norm_(
+            #         amp.master_params(optimizer), 1.0)
+            # else:
+            #     grad_norm = torch.nn.utils.clip_grad_norm_(
+            #         model.parameters(), 1.0)
 
             optimizer.step()
 
-            if epoch > 1:
+            if epoch > 30:
                 scheduler.step(loss)
 
-            print("{}:\t{:.9f}\t{:.9f}".format(
-                iteration, reduced_loss, grad_norm))
+            print("{}:\t{:.9f}".format(
+                iteration, reduced_loss))
             if with_tensorboard and rank == 0:
                 logger.add_scalar('training_loss', reduced_loss,
                                   i + len(train_loader) * epoch)
