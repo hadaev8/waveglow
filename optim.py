@@ -1,23 +1,41 @@
 # https://github.com/mgrankin/over9000
 # https://github.com/Yonghongwei/Gradient-Centralization
 # https://github.com/lessw2020/Ranger-Deep-Learning-Optimizer
+# https://github.com/LiyuanLucasLiu/RAdam
+# https://github.com/shivram1987/diffGrad
 
 import torch
 import math
 from torch.optim.optimizer import Optimizer
 from collections import defaultdict
 
-# RAdam + LARS
+# base radam + gc + diffgrad + adamw
 
 
-class Ralamb(Optimizer):
-    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8, weight_decay=1e-2):
-        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay)
-        self.buffer = [[None, None, None] for ind in range(10)]
-        super(Ralamb, self).__init__(params, defaults)
+class SuperRAdam(Optimizer):
+    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8, weight_decay=0, degenerated_to_sgd=True):
+        if not 0.0 <= lr:
+            raise ValueError("Invalid learning rate: {}".format(lr))
+        if not 0.0 <= eps:
+            raise ValueError("Invalid epsilon value: {}".format(eps))
+        if not 0.0 <= betas[0] < 1.0:
+            raise ValueError(
+                "Invalid beta parameter at index 0: {}".format(betas[0]))
+        if not 0.0 <= betas[1] < 1.0:
+            raise ValueError(
+                "Invalid beta parameter at index 1: {}".format(betas[1]))
+
+        self.degenerated_to_sgd = degenerated_to_sgd
+        if isinstance(params, (list, tuple)) and len(params) > 0 and isinstance(params[0], dict):
+            for param in params:
+                if 'betas' in param and (param['betas'][0] != betas[0] or param['betas'][1] != betas[1]):
+                    param['buffer'] = [[None, None, None] for _ in range(10)]
+        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay, buffer=[
+                        [None, None, None] for _ in range(10)])
+        super(SuperRAdam, self).__init__(params, defaults)
 
     def __setstate__(self, state):
-        super(Ralamb, self).__setstate__(state)
+        super(SuperRAdam, self).__setstate__(state)
 
     def step(self, closure=None):
 
@@ -33,7 +51,7 @@ class Ralamb(Optimizer):
                 grad = p.grad.data.float()
                 if grad.is_sparse:
                     raise RuntimeError(
-                        'Ralamb does not support sparse gradients')
+                        'RAdam does not support sparse gradients')
 
                 p_data_fp32 = p.data.float()
 
@@ -43,29 +61,31 @@ class Ralamb(Optimizer):
                     state['step'] = 0
                     state['exp_avg'] = torch.zeros_like(p_data_fp32)
                     state['exp_avg_sq'] = torch.zeros_like(p_data_fp32)
+                    state['previous_grad'] = torch.zeros_like(p.data)
                 else:
                     state['exp_avg'] = state['exp_avg'].type_as(p_data_fp32)
                     state['exp_avg_sq'] = state['exp_avg_sq'].type_as(
                         p_data_fp32)
 
-                exp_avg, exp_avg_sq = state['exp_avg'], state['exp_avg_sq']
+                exp_avg, exp_avg_sq, previous_grad = state['exp_avg'], state['exp_avg_sq'], state['previous_grad']
                 beta1, beta2 = group['betas']
 
                 # GC operation for Conv layers and FC layers
                 if grad.dim() > 1:
                     grad.add_(-grad.mean(dim=tuple(range(1, grad.dim())), keepdim=True))
 
-                # Decay the first and second moment running average coefficient
-                # m_t
-                exp_avg.mul_(beta1).add_(1 - beta1, grad)
-                # v_t
                 exp_avg_sq.mul_(beta2).addcmul_(1 - beta2, grad, grad)
+                exp_avg.mul_(beta1).add_(1 - beta1, grad)
 
                 state['step'] += 1
-                buffered = self.buffer[int(state['step'] % 10)]
 
+                diff = abs(previous_grad - grad)
+                dfc = 1. / (1. + torch.exp(-diff))
+                state['previous_grad'] = grad.clone()
+
+                buffered = group['buffer'][int(state['step'] % 10)]
                 if state['step'] == buffered[0]:
-                    N_sma, radam_step_size = buffered[1], buffered[2]
+                    N_sma, step_size = buffered[1], buffered[2]
                 else:
                     buffered[0] = state['step']
                     beta2_t = beta2 ** state['step']
@@ -76,42 +96,28 @@ class Ralamb(Optimizer):
 
                     # more conservative since it's an approximated value
                     if N_sma >= 5:
-                        radam_step_size = math.sqrt((1 - beta2_t) * (N_sma - 4) / (N_sma_max - 4) * (
+                        step_size = math.sqrt((1 - beta2_t) * (N_sma - 4) / (N_sma_max - 4) * (
                             N_sma - 2) / N_sma * N_sma_max / (N_sma_max - 2)) / (1 - beta1 ** state['step'])
+                    elif self.degenerated_to_sgd:
+                        step_size = 1.0 / (1 - beta1 ** state['step'])
                     else:
-                        radam_step_size = 1.0 / (1 - beta1 ** state['step'])
-                    buffered[2] = radam_step_size
+                        step_size = -1
+                    buffered[2] = step_size
 
-                p_data_fp32.mul_(1 - group['lr'] * group['weight_decay'])
+                if group['weight_decay'] != 0:
+                    p_data_fp32.mul_(1 - group['lr'] * group['weight_decay'])
 
                 # more conservative since it's an approximated value
-                radam_step = p_data_fp32.clone()
                 if N_sma >= 5:
                     denom = exp_avg_sq.sqrt().add_(group['eps'])
-                    radam_step.addcdiv_(-radam_step_size *
-                                        group['lr'], exp_avg, denom)
-                else:
-                    radam_step.add_(-radam_step_size * group['lr'], exp_avg)
-
-                radam_norm = radam_step.pow(2).sum().sqrt()
-                weight_norm = p.data.pow(2).sum().sqrt().clamp(0, 10)
-                if weight_norm == 0 or radam_norm == 0:
-                    trust_ratio = 1
-                else:
-                    trust_ratio = weight_norm / radam_norm
-
-                state['weight_norm'] = weight_norm
-                state['adam_norm'] = radam_norm
-                state['trust_ratio'] = trust_ratio
-
-                if N_sma >= 5:
-                    p_data_fp32.addcdiv_(-radam_step_size *
-                                         group['lr'] * trust_ratio, exp_avg, denom)
-                else:
-                    p_data_fp32.add_(-radam_step_size *
-                                     group['lr'] * trust_ratio, exp_avg)
-
-                p.data.copy_(p_data_fp32)
+                    # update momentum with dfc
+                    exp_avg1 = exp_avg * dfc.float()
+                    p_data_fp32.addcdiv_(-step_size *
+                                         group['lr'], exp_avg1, denom)
+                    p.data.copy_(p_data_fp32)
+                elif step_size > 0:
+                    p_data_fp32.add_(-step_size * group['lr'], exp_avg)
+                    p.data.copy_(p_data_fp32)
 
         return loss
 
@@ -202,5 +208,5 @@ class Lookahead(Optimizer):
 
 
 def Over9000(params, alpha=0.5, k=6, *args, **kwargs):
-    ralamb = Ralamb(params, *args, **kwargs)
-    return Lookahead(ralamb, alpha, k)
+    adam = SuperRAdam(params, *args, **kwargs)
+    return Lookahead(adam, alpha, k)
