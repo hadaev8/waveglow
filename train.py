@@ -28,6 +28,7 @@ import argparse
 import json
 import os
 import torch
+from tqdm import tqdm
 
 # =====START: ADDED FOR DISTRIBUTED======
 from distributed import init_distributed, apply_gradient_allreduce, reduce_tensor
@@ -38,6 +39,7 @@ from torch.utils.data import DataLoader
 from glow import WaveGlow, WaveGlowLoss
 from mel2samp import Mel2Samp
 from optim import Over9000
+from optimizers import HyperProp
 
 
 def load_checkpoint(checkpoint_path, model, optimizer, warm_start=False):
@@ -90,13 +92,23 @@ def train(num_gpus, rank, group_name, output_directory, epochs, learning_rate,
     if num_gpus > 1:
         model = apply_gradient_allreduce(model)
     # =====END:   ADDED FOR DISTRIBUTED======
-    optimizer = Over9000(model.parameters(), lr=learning_rate)
+    # optimizer = Over9000(model.parameters(), lr=learning_rate)
 
     if fp16_run:
         from apex import amp
         model, optimizer = amp.initialize(model, optimizer, opt_level='O1')
     else:
         amp = None
+
+    trainset = Mel2Samp(**data_config)
+    # =====START: ADDED FOR DISTRIBUTED======
+    train_sampler = DistributedSampler(trainset) if num_gpus > 1 else None
+    # =====END:   ADDED FOR DISTRIBUTED======
+    train_loader = DataLoader(trainset, num_workers=8, shuffle=True,
+                              sampler=train_sampler,
+                              batch_size=batch_size,
+                              pin_memory=False,
+                              drop_last=True)
 
     # Load checkpoint if one exists
     iteration = 0
@@ -108,15 +120,12 @@ def train(num_gpus, rank, group_name, output_directory, epochs, learning_rate,
                 checkpoint_path)['amp'])
         iteration += 1
 
-    trainset = Mel2Samp(**data_config)
-    # =====START: ADDED FOR DISTRIBUTED======
-    train_sampler = DistributedSampler(trainset) if num_gpus > 1 else None
-    # =====END:   ADDED FOR DISTRIBUTED======
-    train_loader = DataLoader(trainset, num_workers=16, shuffle=True,
-                              sampler=train_sampler,
-                              batch_size=batch_size,
-                              pin_memory=False,
-                              drop_last=True)
+    epoch_offset = max(0, int(iteration / len(train_loader)))
+
+    optimizer = HyperProp(params=model.parameters(),
+                          epochs=epochs - epoch_offset,
+                          step_per_epoch=len(train_loader),
+                          IA_cycle=len(train_loader))
 
     # Get shared output_directory ready
     if rank == 0:
@@ -130,59 +139,54 @@ def train(num_gpus, rank, group_name, output_directory, epochs, learning_rate,
         logger = SummaryWriter(os.path.join(output_directory, 'logs'))
 
     model.train()
-    epoch_offset = max(0, int(iteration / len(train_loader)))
 
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, factor=0.999, patience=250, cooldown=250, verbose=True, min_lr=1e-5)
-    # ================ MAIN TRAINNIG LOOP! ===================
-    for epoch in range(epoch_offset, epochs):
-        print("Epoch: {}".format(epoch))
-        for i, batch in enumerate(train_loader):
-            model.zero_grad()
+    IA_activate = False
 
-            mel, audio = batch
-            mel = mel.cuda()
-            audio = audio.cuda()
-            outputs = model((mel, audio))
+    with tqdm(initial=epoch_offset * len(train_loader),
+              total=(epochs - epoch_offset) * len(train_loader)) as pbar:
+        # ================ MAIN TRAINNIG LOOP! ===================
+        for epoch in range(epoch_offset, epochs):
+            print("Epoch: {}".format(epoch))
+            if epoch == 3 and IA_activate is False:
+                print('IA_activate is True')
+                IA_activate = True
+            for i, batch in enumerate(train_loader):
+                model.zero_grad()
 
-            loss = criterion(outputs)
-            if num_gpus > 1:
-                reduced_loss = reduce_tensor(loss.data, num_gpus).item()
-            else:
-                reduced_loss = loss.item()
+                mel, audio = batch
+                mel = mel.cuda()
+                audio = audio.cuda()
+                outputs = model((mel, audio))
 
-            if fp16_run:
-                with amp.scale_loss(loss, optimizer) as scaled_loss:
-                    scaled_loss.backward()
-            else:
-                loss.backward()
+                loss = criterion(outputs)
+                if num_gpus > 1:
+                    reduced_loss = reduce_tensor(loss.data, num_gpus).item()
+                else:
+                    reduced_loss = loss.item()
 
-            # if fp16_run:
-            #     grad_norm = torch.nn.utils.clip_grad_norm_(
-            #         amp.master_params(optimizer), 1.0)
-            # else:
-            #     grad_norm = torch.nn.utils.clip_grad_norm_(
-            #         model.parameters(), 1.0)
+                if fp16_run:
+                    with amp.scale_loss(loss, optimizer) as scaled_loss:
+                        scaled_loss.backward()
+                else:
+                    loss.backward()
 
-            optimizer.step()
+                optimizer.step(activate_IA=IA_activate)
 
-            if epoch > 30:
-                scheduler.step(loss)
+                # print("{}:\t{:.9f}".format(
+                #     iteration, reduced_loss))
+                if with_tensorboard and rank == 0:
+                    logger.add_scalar('training_loss', reduced_loss,
+                                      i + len(train_loader) * epoch)
 
-            print("{}:\t{:.9f}".format(
-                iteration, reduced_loss))
-            if with_tensorboard and rank == 0:
-                logger.add_scalar('training_loss', reduced_loss,
-                                  i + len(train_loader) * epoch)
+                if (iteration % iters_per_checkpoint == 0):
+                    if rank == 0:
+                        checkpoint_path = "{}/waveglow_{}".format(
+                            output_directory, iteration)
+                        save_checkpoint(model, optimizer, amp,
+                                        iteration, checkpoint_path)
 
-            if (iteration % iters_per_checkpoint == 0):
-                if rank == 0:
-                    checkpoint_path = "{}/waveglow_{}".format(
-                        output_directory, iteration)
-                    save_checkpoint(model, optimizer, amp,
-                                    iteration, checkpoint_path)
-
-            iteration += 1
+                iteration += 1
+                pbar.update(1)
 
 
 if __name__ == "__main__":
