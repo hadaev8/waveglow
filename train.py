@@ -110,6 +110,11 @@ def train(num_gpus, rank, group_name, output_directory, epochs, learning_rate,
                               pin_memory=False,
                               drop_last=True)
 
+    optimizer = HyperProp(params=model.parameters(),
+                          epochs=epochs,
+                          step_per_epoch=len(train_loader),
+                          IA_cycle=len(train_loader))
+
     # Load checkpoint if one exists
     iteration = 0
     if checkpoint_path != "":
@@ -121,11 +126,6 @@ def train(num_gpus, rank, group_name, output_directory, epochs, learning_rate,
         iteration += 1
 
     epoch_offset = max(0, int(iteration / len(train_loader)))
-
-    optimizer = HyperProp(params=model.parameters(),
-                          epochs=epochs - epoch_offset,
-                          step_per_epoch=len(train_loader),
-                          IA_cycle=len(train_loader))
 
     # Get shared output_directory ready
     if rank == 0:
