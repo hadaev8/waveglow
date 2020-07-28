@@ -59,8 +59,8 @@ def load_checkpoint(checkpoint_path, model, optimizer, warm_start=False):
 
 
 def save_checkpoint(model, optimizer, amp, iteration, filepath):
-    print("Saving model and optimizer state at iteration {} to {}".format(
-          iteration, filepath))
+    # print("Saving model and optimizer state at iteration {} to {}".format(
+    #       iteration, filepath))
     model_for_saving = WaveGlow(**waveglow_config).cuda()
     model_for_saving.load_state_dict(model.state_dict())
     checkpoint = {'model': model_for_saving,
