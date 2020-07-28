@@ -38,7 +38,7 @@ from torch.utils.data.distributed import DistributedSampler
 from torch.utils.data import DataLoader
 from glow import WaveGlow, WaveGlowLoss
 from mel2samp import Mel2Samp
-from optim import Over9000
+# from optim import Over9000
 from optimizers import HyperProp
 
 
@@ -147,7 +147,7 @@ def train(num_gpus, rank, group_name, output_directory, epochs, learning_rate,
         # ================ MAIN TRAINNIG LOOP! ===================
         for epoch in range(epoch_offset, epochs):
             print("Epoch: {}".format(epoch))
-            if epoch == 3 and IA_activate is False:
+            if epoch > epochs * 0.7 and IA_activate is False:
                 print('IA_activate is True')
                 IA_activate = True
             for i, batch in enumerate(train_loader):
