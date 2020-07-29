@@ -146,7 +146,7 @@ def train(num_gpus, rank, group_name, output_directory, epochs, learning_rate,
               total=(epochs - epoch_offset) * len(train_loader)) as pbar:
         # ================ MAIN TRAINNIG LOOP! ===================
         for epoch in range(epoch_offset, epochs):
-            print("Epoch: {}".format(epoch))
+            # print("Epoch: {}".format(epoch))
             if epoch > epochs * 0.7 and IA_activate is False:
                 print('IA_activate is True')
                 IA_activate = True
