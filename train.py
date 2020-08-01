@@ -184,6 +184,7 @@ def train(num_gpus, rank, group_name, output_directory, epochs, learning_rate,
 
                 iteration += 1
                 pbar.update(1)
+    save_checkpoint(model, optimizer, amp, iteration, checkpoint_path)
 
 
 if __name__ == "__main__":
