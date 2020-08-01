@@ -45,14 +45,13 @@ from optimizers import HyperProp
 def load_checkpoint(checkpoint_path, model, optimizer, warm_start=False):
     assert os.path.isfile(checkpoint_path)
     checkpoint_dict = torch.load(checkpoint_path, map_location='cpu')
+    model.load_state_dict(checkpoint_dict['model'])
     if 'iteration' in checkpoint_dict.keys() and not warm_start:
         iteration = checkpoint_dict['iteration']
     else:
         iteration = 0
     if 'optimizer' in checkpoint_dict.keys() and not warm_start:
         optimizer.load_state_dict(checkpoint_dict['optimizer'])
-    model_for_loading = checkpoint_dict['model']
-    model.load_state_dict(model_for_loading.state_dict())
     print("Loaded checkpoint '{}' (iteration {})" .format(
           checkpoint_path, iteration))
     return model, optimizer, iteration
@@ -61,9 +60,7 @@ def load_checkpoint(checkpoint_path, model, optimizer, warm_start=False):
 def save_checkpoint(model, optimizer, amp, iteration, filepath):
     # print("Saving model and optimizer state at iteration {} to {}".format(
     #       iteration, filepath))
-    model_for_saving = WaveGlow(**waveglow_config).cuda()
-    model_for_saving.load_state_dict(model.state_dict())
-    checkpoint = {'model': model_for_saving,
+    checkpoint = {'model': model.state_dict(),
                   'iteration': iteration,
                   'optimizer': optimizer.state_dict(),
                   'cuda_rng_state_all': torch.cuda.get_rng_state_all(),
